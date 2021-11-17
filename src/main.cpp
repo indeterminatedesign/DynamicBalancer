@@ -9,6 +9,7 @@ volatile boolean rotationCompleteFlag = false;
 uint32_t rotationCount;
 boolean runComplete = false;
 
+//Speed Control Stuff
 uint32_t previousRPMControllerMicros;
 const uint32_t RPMControllerInterval = 100000;
 
@@ -16,28 +17,25 @@ uint32_t previousRotationMicros = micros();
 uint32_t lastPulseMicros;
 uint16_t currentRPM;
 float averageTimePerPulseFromPreviousRevolution; //Using the total time required for the last revolution, divide by the number of poles to give an average duration per pole for estimating current position
+const uint16_t targetRPM = 5500;
 
+//Publishing Data Stuff
 uint32_t previousDataOutputMicros;
-uint16_t dataInterval = 1000;
 
-
+//LED Strobe stuff
 boolean strobeLEDFlag = false;
-uint16_t strobeLEDDuration = 1000;
+uint16_t strobeLEDDuration = 5000;
 uint32_t strobeLEDPreviousMicros = 0;
 
+//MPU Stuff
 uint32_t previousMPUMicros;
 uint16_t mpuInterval = 2000;
 
-const uint16_t targetRPM = 6000;
-
-float_t kP = 0.25;
-float_t kI = 0.0;
-float_t kD = 0.00;
-
 //Constants
-uint16_t zeroAngleOffset = 270;
-uint16_t numberOfPoles = 14;
-float_t degreesPerPole = 360 / numberOfPoles;
+const uint16_t dataInterval = 100;
+const uint16_t zeroAngleOffset = -90;
+const uint16_t numberOfPoles = 14;
+const float_t degreesPerPole = 360 / numberOfPoles;
 #define ESCMax 2000
 #define ESCMin 1000
 #define ESCRangeLimiter 1200
@@ -45,7 +43,12 @@ float_t degreesPerPole = 360 / numberOfPoles;
 #define HallPin 18
 #define ServoPin 19
 #define NumberOfRotationsPerRun 1000
+#define NumberOfRotationsToDiscard 100
+const float_t kP = 0.25;
+const float_t kI = 0.0;
+const float_t kD = 0.00;
 //#define Debug
+//#define Verbose
 
 //Magnitude of Accel, Angle
 uint32_t runData[2][NumberOfRotationsPerRun];
@@ -80,8 +83,11 @@ void IRAM_ATTR addPulse()
 
 void setup()
 {
-  Serial.begin(250000);
+  Serial.begin(500000);
   Serial.println("Started");
+
+  Wire.setClock(400000);
+
   // put your setup code here, to run once:
   pinMode(LEDPin, OUTPUT);
   pinMode(HallPin, INPUT);
@@ -101,9 +107,7 @@ void setup()
   Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
   //DLPF Setting
   mpu.setDLPFMode(MPU6050_DLPF_BW_98);
-  //mpu.CalibrateAccel(6);
-
-  //mpu.Calibrate();
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);
 
   esc.attach(ServoPin, 1000, 2000);
 
@@ -115,19 +119,27 @@ void setup()
 
 void loop()
 {
- strobeLED();
+  strobeLED();
+
   if (!runComplete)
   {
-     outputData();
+    outputData();
     if (rotationCompleteFlag)
     {
+      Serial.print(rotationCount);
+      Serial.print(",");
+      Serial.print(maxAccelPosition);
+      Serial.print(",");
+      Serial.println(maxAccelPerRotation);
 
       runData[0][rotationCount] = maxAccelPerRotation;
       runData[1][rotationCount] = maxAccelPosition;
+
       maxAccelPerRotation = 0;
       maxAccelPosition = 0;
 
       rotationCount++;
+
       //Serial.println("Rotation Complete");
       //Based on when the last rotation started, store how long a rotation has taken
       averageTimePerPulseFromPreviousRevolution = (micros() - previousRotationMicros) / (float)numberOfPoles;
@@ -145,17 +157,17 @@ void loop()
         //Publish results
         int32_t accelerationSum = 0;
         int32_t positionSum = 0;
-        for (int16_t i = 0; i < NumberOfRotationsPerRun; i++)
+        for (int16_t i = NumberOfRotationsToDiscard; i < NumberOfRotationsPerRun; i++)
         {
           accelerationSum += runData[0][i];
           positionSum += runData[1][i];
         }
 
-        Serial.println("$$$$$$$$$$$$$$$$$ End of Run $$$$$$$$$$$$$$$$$$$");
-        Serial.print("Avg Accel");
-        Serial.println((float_t)accelerationSum / NumberOfRotationsPerRun);
-        Serial.print("Avg Position");
-        Serial.println((float_t)positionSum / NumberOfRotationsPerRun);
+        Serial.println("--------------- End of Run ---------------");
+        Serial.print("Avg Accel: ");
+        Serial.println((float_t)accelerationSum / (NumberOfRotationsPerRun - NumberOfRotationsToDiscard));
+        Serial.print("Avg Position: ");
+        Serial.println((float_t)positionSum / (NumberOfRotationsPerRun - NumberOfRotationsToDiscard));
       }
       rotationCompleteFlag = false;
     }
@@ -169,13 +181,17 @@ void outputData()
   {
     int32_t tempAccel = processMPU();
     int32_t tempPosition = getPosition();
+#ifdef Verbose
     String data;
-    data.concat(currentRPM);
+    data.concat(rotationCount);
+    data.concat(",");
+    data.concat(tempPosition);
     data.concat(",");
     data.concat(tempAccel);
     data.concat(",");
-    data.concat(tempPosition);
+    data.concat(currentRPM);
     Serial.println(data);
+#endif
     if (maxAccelPerRotation < tempAccel)
     {
       maxAccelPerRotation = tempAccel;
@@ -193,7 +209,7 @@ uint16_t getPosition()
   // 2nd portion is the time from the last pulse to the current time to give time since last pulse
   //divide the time since the last pulse by a floating average pulse length to give the portion of the time complete for the current pulse cycle
   //multiply the portion complete of the latest pulse by the degrees per pole to give the current position
-  positionBasedonPulseCount = (360 / numberOfPoles) * pulseCount;
+  positionBasedonPulseCount = (degreesPerPole)*pulseCount;
   positionBasedonTime = (micros() - lastPulseMicros) / averageTimePerPulseFromPreviousRevolution * degreesPerPole;
 
   //Constrain the time based angle of the last pole to a maximum of the angle of a single pole
@@ -297,7 +313,6 @@ void strobeLED()
 
 float_t processMPU()
 {
-
   float_t y_accel;
   y_accel = mpu.getAccelerationY();
 
