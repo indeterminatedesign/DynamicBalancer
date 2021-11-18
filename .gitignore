@@ -36,3 +36,6 @@
 *.obj
 *.dblite
 
+.pio/build/esp32dev/.sconsign39.dblite
+.pio/build/esp32dev/firmware.bin
+.pio/build/esp32dev/firmware.elf

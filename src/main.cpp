@@ -17,7 +17,7 @@ uint32_t previousRotationMicros = micros();
 uint32_t lastPulseMicros;
 uint16_t currentRPM;
 float averageTimePerPulseFromPreviousRevolution; //Using the total time required for the last revolution, divide by the number of poles to give an average duration per pole for estimating current position
-const uint16_t targetRPM = 5500;
+const uint16_t targetRPM = 3000;
 
 //Publishing Data Stuff
 uint32_t previousDataOutputMicros;
@@ -32,8 +32,8 @@ uint32_t previousMPUMicros;
 uint16_t mpuInterval = 2000;
 
 //Constants
-const uint16_t dataInterval = 100;
-const uint16_t zeroAngleOffset = -90;
+const uint16_t dataInterval = 1000;
+const uint16_t zeroAngleOffset = 0;
 const uint16_t numberOfPoles = 14;
 const float_t degreesPerPole = 360 / numberOfPoles;
 #define ESCMax 2000
@@ -72,6 +72,7 @@ void IRAM_ATTR addPulse()
 {
   pulseCount++;
   lastPulseMicros = micros();
+ // Serial.println("Pulse");
 
   if (pulseCount % numberOfPoles == 0)
   {
@@ -84,15 +85,13 @@ void IRAM_ATTR addPulse()
 void setup()
 {
   Serial.begin(500000);
-  Serial.println("Started");
+  Serial.println("Begin Setup and Calibration");
 
   Wire.setClock(400000);
 
   // put your setup code here, to run once:
   pinMode(LEDPin, OUTPUT);
   pinMode(HallPin, INPUT);
-
-  attachInterrupt(HallPin, addPulse, CHANGE);
 
   //Initialize MPU
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
@@ -106,15 +105,20 @@ void setup()
   Serial.println("Testing device connections...");
   Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
   //DLPF Setting
-  mpu.setDLPFMode(MPU6050_DLPF_BW_98);
+  mpu.setDLPFMode(MPU6050_DLPF_BW_188);
   mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);
 
+  //Attach and calibrate servo
   esc.attach(ServoPin, 1000, 2000);
 
   esc.writeMicroseconds(2000);
   delay(3000);
   esc.writeMicroseconds(1000);
-  delay(3000);
+  delay(5000);
+
+  //Announce that run can start and the interrupt is attached
+  attachInterrupt(HallPin, addPulse, CHANGE);
+  Serial.println("Ready to Begin Run");
 }
 
 void loop()
