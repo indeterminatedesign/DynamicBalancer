@@ -17,7 +17,7 @@ uint32_t previousRotationMicros = micros();
 uint32_t lastPulseMicros;
 uint16_t currentRPM;
 float averageTimePerPulseFromPreviousRevolution; //Using the total time required for the last revolution, divide by the number of poles to give an average duration per pole for estimating current position
-const uint16_t targetRPM = 3000;
+const uint16_t targetRPM = 5500;
 
 //Publishing Data Stuff
 uint32_t previousDataOutputMicros;
@@ -33,8 +33,8 @@ uint16_t mpuInterval = 2000;
 
 //Constants
 const uint16_t dataInterval = 1000;
-const uint16_t zeroAngleOffset = 0;
-const uint16_t numberOfPoles = 14;
+const uint16_t zeroAngleOffset = -185;
+const uint16_t numberOfPoles = 2;
 const float_t degreesPerPole = 360 / numberOfPoles;
 #define ESCMax 2000
 #define ESCMin 1000
@@ -116,8 +116,8 @@ void setup()
   esc.writeMicroseconds(1000);
   delay(5000);
 
-  //Announce that run can start and the interrupt is attached
-  attachInterrupt(HallPin, addPulse, CHANGE);
+  //Announce that run can start and the interrupt is attached  //Use change instead of rising if the hall sensor will be counting the poles inside a motor
+  attachInterrupt(HallPin, addPulse, RISING);
   Serial.println("Ready to Begin Run");
 }
 
@@ -156,7 +156,8 @@ void loop()
         //Mark the run as complete after 50 rotations
         runComplete = true;
         //turn off the motor
-        esc.writeMicroseconds(ESCMin);
+        esc.writeMicroseconds(0);
+        esc.detach();
 
         //Publish results
         int32_t accelerationSum = 0;
@@ -183,8 +184,9 @@ void outputData()
   uint16_t dt = micros() - previousDataOutputMicros;
   if (dt > dataInterval)
   {
-    int32_t tempAccel = processMPU();
     int32_t tempPosition = getPosition();
+    int32_t tempAccel = processMPU();
+  
 #ifdef Verbose
     String data;
     data.concat(rotationCount);
